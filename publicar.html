@@ -17,6 +17,7 @@ video{width:200px;border-radius:12px;margin-top:.6em}
 <p class="peq">Ciencia de Bolsillo posts the channel owner's own videos to the owner's own TikTok account.</p>
 <div id="estado">Checking helper...</div>
 <button id="login" hidden>Log in with TikTok</button>
+<button id="salir" hidden style="background:#0b1d42;color:#e8f1ff;border:1px solid #2f5ca8">Log out</button>
 
 <section id="panel" hidden>
 <p>Posting to: <strong id="cuenta"></strong></p>
@@ -60,7 +61,8 @@ $("video").onchange = () => {
   const v = lista.find(x => x.id === $("video").value);
   $("titulo").value = v.descripcion; $("prev").src = H + "/video/" + v.id;
 };
-$("comercial").onchange = () => { $("com").hidden = !$("comercial").checked; };
+$("salir").onclick = async () => { await api("/salir", {}); location.reload(); };
+$("comercial").onchange =() => { $("com").hidden = !$("comercial").checked; };
 $("priv").onchange = () => { $("publicar").disabled = !$("priv").value; };
 
 async function iniciar() {
@@ -68,6 +70,7 @@ async function iniciar() {
   catch { $("estado").innerHTML = '<span class="mal">The local helper is not running (python herramientas/publicar.py).</span>'; return; }
   if (!e.conectado) { $("estado").textContent = "Not connected."; $("login").hidden = false; return; }
   $("estado").innerHTML = '<span class="ok">Connected to TikTok as ' + (e.display_name || "your account") + '.</span>';
+  $("salir").hidden = false;
   const cr = await api("/creador");
   $("cuenta").textContent = (cr.creator_nickname || e.display_name) + (cr.creator_username ? " (@" + cr.creator_username + ")" : "");
   cr.privacy_level_options.forEach(o => $("priv").add(new Option(NIVELES[o] || o, o)));
