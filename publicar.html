@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Publish - Ciencia de Bolsillo</title>
+<link rel="stylesheet" href="estilo.css">
+<style>
+label{display:block;margin:.9em 0 .2em;font-weight:700}
+select,textarea,button{font:inherit;width:100%;box-sizing:border-box;padding:.6em;border-radius:10px;border:1px solid #2f5ca8;background:#0b1d42;color:#e8f1ff}
+textarea{min-height:90px}
+button{background:#5ee7ff;color:#06214a;font-weight:900;border:0;cursor:pointer;margin-top:1em}
+button:disabled{opacity:.45;cursor:not-allowed}
+.fila{display:flex;gap:.6em;align-items:center;margin:.3em 0}.fila input{width:auto}
+video{width:200px;border-radius:12px;margin-top:.6em}
+#estado,#msg{margin-top:1em;padding:.7em;border-radius:10px;background:#0b1d42}
+.ok{color:#62f0a0}.mal{color:#ff8a8a}.peq{font-size:.85rem;color:#9fb6d9}
+</style></head><body><main>
+<h1>Publish a video</h1>
+<p class="peq">Ciencia de Bolsillo posts the channel owner's own videos to the owner's own TikTok account.</p>
+<div id="estado">Checking helper...</div>
+<button id="login" hidden>Log in with TikTok</button>
+
+<section id="panel" hidden>
+<p>Posting to: <strong id="cuenta"></strong></p>
+<label for="video">Video</label><select id="video"></select>
+<video id="prev" controls muted playsinline></video>
+<label for="titulo">Caption</label><textarea id="titulo" maxlength="2000"></textarea>
+<label for="priv">Who can view this video</label><select id="priv"><option value="">Select...</option></select>
+<label>Allow users to</label>
+<div class="fila"><input type="checkbox" id="comentarios"><span>Comment</span></div>
+<div class="fila"><input type="checkbox" id="duo"><span>Duet</span></div>
+<div class="fila"><input type="checkbox" id="stitch"><span>Stitch</span></div>
+<div class="fila"><input type="checkbox" id="comercial"><span>Disclose commercial content</span></div>
+<div id="com" hidden>
+<div class="fila"><input type="checkbox" id="m1"><span>Your brand</span></div>
+<div class="fila"><input type="checkbox" id="m2"><span>Branded content (third party)</span></div></div>
+<div class="fila"><input type="checkbox" checked disabled><span>AI-generated content (this video uses AI illustration and synthetic voice)</span></div>
+<p class="peq">By posting, you agree to TikTok's <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en">Music Usage Confirmation</a>.</p>
+<button id="publicar" disabled>Post to TikTok</button>
+</section>
+<div id="msg" hidden></div>
+<p class="peq"><a href="index.html">Back</a> · <a href="privacidad.html">Privacy</a> · <a href="terminos.html">Terms</a></p>
+</main>
+<script>
+const H = "http://127.0.0.1:8765", $ = id => document.getElementById(id);
+const api = async (ruta, cuerpo) => {
+  const r = await fetch(H + ruta, cuerpo ? {method: "POST", body: JSON.stringify(cuerpo)} : {});
+  const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j;
+};
+const aviso = (t, c) => { $("msg").hidden = false; $("msg").className = c || ""; $("msg").textContent = t; };
+const NIVELES = {PUBLIC_TO_EVERYONE: "Everyone", MUTUAL_FOLLOW_FRIENDS: "Friends", FOLLOWER_OF_CREATOR: "Followers", SELF_ONLY: "Only me"};
+let lista = [];
+
+$("login").onclick = async () => {
+  const c = await api("/config"), estado = crypto.randomUUID();
+  sessionStorage.setItem("estado", estado);
+  location.href = "https://www.tiktok.com/v2/auth/authorize/?" + new URLSearchParams({
+    client_key: c.client_key, scope: "user.info.basic,video.publish", response_type: "code",
+    redirect_uri: c.redirect, state: estado});
+};
+$("video").onchange = () => {
+  const v = lista.find(x => x.id === $("video").value);
+  $("titulo").value = v.descripcion; $("prev").src = H + "/video/" + v.id;
+};
+$("comercial").onchange = () => { $("com").hidden = !$("comercial").checked; };
+$("priv").onchange = () => { $("publicar").disabled = !$("priv").value; };
+
+async function iniciar() {
+  try { var e = await api("/estado"); }
+  catch { $("estado").innerHTML = '<span class="mal">The local helper is not running (python herramientas/publicar.py).</span>'; return; }
+  if (!e.conectado) { $("estado").textContent = "Not connected."; $("login").hidden = false; return; }
+  $("estado").innerHTML = '<span class="ok">Connected to TikTok as ' + (e.display_name || "your account") + '.</span>';
+  const cr = await api("/creador");
+  $("cuenta").textContent = (cr.creator_nickname || e.display_name) + (cr.creator_username ? " (@" + cr.creator_username + ")" : "");
+  cr.privacy_level_options.forEach(o => $("priv").add(new Option(NIVELES[o] || o, o)));
+  $("comentarios").disabled = cr.comment_disabled; $("duo").disabled = cr.duet_disabled; $("stitch").disabled = cr.stitch_disabled;
+  lista = await api("/videos");
+  lista.forEach(v => $("video").add(new Option(v.titulo, v.id)));
+  $("panel").hidden = false; $("video").onchange();
+}
+
+$("publicar").onclick = async () => {
+  $("publicar").disabled = true; aviso("Uploading video to TikTok...");
+  try {
+    const r = await api("/publicar", {video: $("video").value, titulo: $("titulo").value, privacidad: $("priv").value,
+      comentarios: $("comentarios").checked, duo: $("duo").checked, stitch: $("stitch").checked,
+      comercial: $("comercial").checked, marca_propia: $("m1").checked, marca_tercero: $("m2").checked});
+    for (;;) {
+      const s = await api("/publicacion?id=" + encodeURIComponent(r.publish_id));
+      aviso("Status: " + s.status);
+      if (s.status === "PUBLISH_COMPLETE") { aviso("Published. Check your TikTok profile.", "ok"); break; }
+      if (s.status === "FAILED") { aviso("Failed: " + (s.fail_reason || "unknown"), "mal"); break; }
+      await new Promise(f => setTimeout(f, 3000));
+    }
+  } catch (e) { aviso("Error: " + e.message, "mal"); }
+  $("publicar").disabled = !$("priv").value;
+};
+iniciar();
+</script></body></html>
